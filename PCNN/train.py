@@ -13,6 +13,7 @@ from tensorflow.contrib import learn
 # ==================================================
 
 # Model Hyperparameters
+tf.flags.DEFINE_integer("max_length", 100, "Effective sentence length (default: 100)")
 tf.flags.DEFINE_integer("embedding_dim", 50, "Dimensionality of character embedding (default: 128)")
 tf.flags.DEFINE_string("filter_sizes", "3,4,5", "Comma-separated filter sizes (default: '3,4,5')")
 tf.flags.DEFINE_integer("num_filters", 128, "Number of filters per filter size (default: 128)")
@@ -43,12 +44,13 @@ dataManager = DataManager()
 
 # Load data
 print("Loading training data...")
-x_text, y = dataManager.load_training_data()
+x_text, y, position_feature = dataManager.load_training_data()
 print("Finish loading data")
 
+# Extend data to same length
 x = []
 for data in x_text:
-    a = 100-len(data)
+    a = FLAGS.max_length-len(data)
     if a > 0:
         front = a/2
         back = a-front
@@ -56,21 +58,41 @@ for data in x_text:
         back_vec = [np.zeros(dataManager.wordvector_dim+2) for k in range(back)]
         data = np.asarray(front_vec+data+back_vec)
     else:
-        data = np.asarray(data[:100])
+        data = np.asarray(data[:FLAGS.max_length])
     x.append(data)
 x = np.asarray(x)
+
+# Process position feature
+filter_sizes=list(map(int, FLAGS.filter_sizes.split(",")))
+pos_filter_features = [[] for i in range(len(position_feature))]
+for i, filter_size in enumerate(filter_sizes):
+    for k, feature in enumerate(position_feature):
+        dim = FLAGS.max_length-filter_size+1
+        partition = np.ones(dim)
+        partition[0] = 0
+        partition[-1] = 2
+        for j in range(feature[0]-filter_size/2):
+            if j < len(partition)-1:
+                partition[i] = 0
+        for j in range((FLAGS.max_length-feature[1])-filter_size/2):
+            partition[dim-j-1] = 2
+        pos_filter_features[k].append(partition)
+pos_filter_features = np.asarray(pos_filter_features)
+print("Finish process position")
 
 # Randomly shuffle data
 np.random.seed(10)
 shuffle_indices = np.random.permutation(np.arange(len(y)))
 x_shuffled = x[shuffle_indices]
 y_shuffled = y[shuffle_indices]
+pos_filter_features = pos_filter_features[shuffle_indices]
 print("Finish randomize data")
 
 # Split train/test set
 # TODO: This is very crude, should use cross-validation
 x_train, x_dev = x_shuffled[:-1000], x_shuffled[-1000:]
 y_train, y_dev = y_shuffled[:-1000], y_shuffled[-1000:]
+pos_train, pos_dev = pos_filter_features[:-1000], pos_filter_features[-1000:]
 print("Train/Dev split: {:d}/{:d}".format(len(y_train), len(y_dev)))
 
 # Training
@@ -90,6 +112,7 @@ with tf.Graph().as_default():
             filter_sizes=list(map(int, FLAGS.filter_sizes.split(","))),
             num_filters=FLAGS.num_filters,
             l2_reg_lambda=FLAGS.l2_reg_lambda)
+        print("Cnn model contructed.")
 
         # Define Training procedure
         global_step = tf.Variable(0, name="global_step", trainable=False)
@@ -115,16 +138,19 @@ with tf.Graph().as_default():
         # Summaries for loss and accuracy
         loss_summary = tf.scalar_summary("loss", cnn.loss)
         acc_summary = tf.scalar_summary("accuracy", cnn.accuracy)
+        print("Summary for loss")
 
         # Train Summaries
         train_summary_op = tf.merge_summary([loss_summary, acc_summary, grad_summaries_merged])
         train_summary_dir = os.path.join(out_dir, "summaries", "train")
         train_summary_writer = tf.train.SummaryWriter(train_summary_dir, sess.graph)
+        print("Training summary")
 
         # Dev summaries
         dev_summary_op = tf.merge_summary([loss_summary, acc_summary])
         dev_summary_dir = os.path.join(out_dir, "summaries", "dev")
         dev_summary_writer = tf.train.SummaryWriter(dev_summary_dir, sess.graph)
+        print("Dev summary")
 
         # Checkpoint directory. Tensorflow assumes this directory already exists so we need to create it
         checkpoint_dir = os.path.abspath(os.path.join(out_dir, "checkpoints"))
@@ -132,19 +158,26 @@ with tf.Graph().as_default():
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
         saver = tf.train.Saver(tf.all_variables())
+        print("Checkpoint")
 
         # Initialize all variables
         sess.run(tf.initialize_all_variables())
+        print("Sess run successfully.")
 
-        def train_step(x_batch, y_batch):
+        def train_step(x_batch, y_batch, pos_batch):
             """
             A single training step
             """
+            pos = []
+            for i in range(len(pos_batch[0])):
+                pos.append(np.asarray(list(pos_batch))[:,i])
             feed_dict = {
               cnn.input_x: x_batch,
               cnn.input_y: y_batch,
-              cnn.dropout_keep_prob: FLAGS.dropout_keep_prob
+              cnn.dropout_keep_prob: FLAGS.dropout_keep_prob,
             }
+            for i, d in zip(cnn.partitions, pos):
+                feed_dict[i] = tuple(map(tuple,d))
             _, step, summaries, loss, accuracy = sess.run(
                 [train_op, global_step, train_summary_op, cnn.loss, cnn.accuracy],
                 feed_dict)
@@ -152,14 +185,19 @@ with tf.Graph().as_default():
             #print("{}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
             train_summary_writer.add_summary(summaries, step)
 
-        def dev_step(x_batch, y_batch, writer=None):
+        def dev_step(x_batch, y_batch, pos_batch, writer=None):
             """
             Evaluates model on a dev set
             """
+            shape = pos_batch.shape
+            pos = []
+            for i in range(shape[1]):
+                pos.append(pos_batch[:,i])
             feed_dict = {
               cnn.input_x: x_batch,
               cnn.input_y: y_batch,
-              cnn.dropout_keep_prob: 1.0
+              cnn.dropout_keep_prob: 1.0,
+              Cnn.partitions: pos,
             }
             step, summaries, loss, accuracy = sess.run(
                 [global_step, dev_summary_op, cnn.loss, cnn.accuracy],
@@ -171,8 +209,9 @@ with tf.Graph().as_default():
 
         # Generate batches
         batches = dataManager.batch_iter(
-            list(zip(x_train, y_train)), FLAGS.batch_size, FLAGS.num_epochs)
+            list(zip(x_train, y_train, pos_train)), FLAGS.batch_size, FLAGS.num_epochs)
         num_batches_per_epoch = int(len(x_train)/FLAGS.batch_size) + 1
+        print("Finish batch")
         # Training loop. For each batch...
         num_batch = 1
         num_epoch = 1
@@ -181,14 +220,16 @@ with tf.Graph().as_default():
                 num_epoch += 1
                 num_batch = 1
             num_batch += 1
-            x_batch, y_batch = zip(*batch)
-            train_step(x_batch, y_batch)
+            x_batch, y_batch, pos_batch = zip(*batch)
+            print("Train step start")
+            train_step(x_batch, y_batch, pos_batch)
+            print("Finish one train step")
             current_step = tf.train.global_step(sess, global_step)
             if current_step % FLAGS.evaluate_every == 0:
                 print("Num_batch: {}".format(num_batch))
                 print("Num_epoch: {}".format(num_epoch))
                 print("Evaluation:")
-                dev_step(x_dev, y_dev, writer=dev_summary_writer)
+                dev_step(x_dev, y_dev, pos_dev, writer=dev_summary_writer)
                 print("")
             if current_step % FLAGS.checkpoint_every == 0:
                 path = saver.save(sess, checkpoint_prefix, global_step=current_step)

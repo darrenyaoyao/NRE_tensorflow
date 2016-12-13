@@ -12,12 +12,12 @@ class TextCNN(object):
       embedding_size, filter_sizes, num_filters, l2_reg_lambda=0.0):
 
         # Placeholders for input, output and dropout
-        self.input_x = tf.placeholder(tf.float32, [None, sequence_length, embedding_size], name="input_x")
-        self.input_y = tf.placeholder(tf.float32, [None, num_classes], name="input_y")
+        self.input_x = tf.placeholder(tf.float32, [64, sequence_length, embedding_size], name="input_x")
+        self.input_y = tf.placeholder(tf.float32, [64, num_classes], name="input_y")
         self.dropout_keep_prob = tf.placeholder(tf.float32, name="dropout_keep_prob")
         self.partitions = []
         for filter_size in filter_sizes:
-            partitions = tf.placeholder(tf.int32, name="filter %s paritions" % filter_size)
+            partitions = tf.placeholder(tf.int32, [64, None], name="filter_%s_paritions" % filter_size)
             self.partitions.append(partitions)
 
         # Keeping track of l2 regularization loss (optional)
@@ -41,31 +41,54 @@ class TextCNN(object):
                     name="conv")
                 # Apply nonlinearity
                 h = tf.nn.relu(tf.nn.bias_add(conv, b), name="relu")
-                # Partition h
-                h = tf.reshape(h, [-1])
-                h_s = tf.dynamic_partition(h, self.partitions[i], 3, name="piecewise max-pooling")
-                # Maxpooling over the piecewise outputs
+                # Partition h (?, 98, 1, 128)
+                batch_pooleds = []
+                for k in range(64):
+                    filter_pooleds = []
+                    print("One batch %s" % k)
+                    for w in range(128):
+                        h_s = tf.dynamic_partition(h[k][:,0][:,w], self.partitions[i][k], 3, name="piecewise_max-pooling")
+                        for j in range(3):
+                            pooled = tf.reduce_max(h_s[j], reduction_indices=None, keep_dims=True, name="pool")
+                            filter_pooleds.append(pooled)
+                    filter_pooleds = tf.concat(0, filter_pooleds)
+                    filter_pooleds = tf.expand_dims(filter_pooleds, 0)
+                    filter_pooleds = tf.expand_dims(filter_pooleds, 0)
+                    filter_pooleds = tf.expand_dims(filter_pooleds, 0)
+                    batch_pooleds.append(filter_pooleds)
+                batch_pooleds = tf.concat(0, batch_pooleds)
+                pooled_outputs.append(batch_pooleds) # (?, 1, 1, 128*3)
+
+                '''# Maxpooling over the piecewise outputs
                 for j in range(3):
                     dim = (h_s[j].get_shape())[0].value
-                    h_s[j] = tf.reshape(h_s[j], [1, dim, 1, 1])
+                    h_s[j] = tf.reshape(h_s[j], [1, None, 1, 1])
                     pooled = tf.nn.max_pool(
                         h_s[j],
                         ksize=[1, dim, 1, 1],
                         strides=[1, 1, 1, 1],
                         padding='VALID',
                         name="pool")
-                    pooled_outputs.append(pooled)
+                    pooled = tf.reduce_max(h_s[j], reduction_indices=None, keep_dims=False, name="pool")
+                    pooled_outputs.append(pooled)'''
 
         # Combine all the pooled features
+        print("Start to combine features")
         num_filters_total = num_filters * len(filter_sizes) * 3
         self.h_pool = tf.concat(3, pooled_outputs)
+        print(num_filters_total)
+        print(self.h_pool.get_shape())
         self.h_pool_flat = tf.reshape(self.h_pool, [-1, num_filters_total])
+        print("Finish combine features")
 
         # Add dropout
+        print("Contruct dropout layer")
         with tf.name_scope("dropout"):
             self.h_drop = tf.nn.dropout(self.h_pool_flat, self.dropout_keep_prob)
+        print("Finish contructing dropout layer")
 
         # Final (unnormalized) scores and predictions
+        print("Contruct output layer")
         with tf.name_scope("output"):
             W = tf.get_variable(
                 "W",
@@ -76,6 +99,7 @@ class TextCNN(object):
             l2_loss += tf.nn.l2_loss(b)
             self.scores = tf.nn.xw_plus_b(self.h_drop, W, b, name="scores")
             self.predictions = tf.argmax(self.scores, 1, name="predictions")
+        print("Finish contructing output layer")
 
         # CalculateMean cross-entropy loss
         with tf.name_scope("loss"):

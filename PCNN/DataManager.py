@@ -19,6 +19,7 @@ class DataManager:
         self.testlist = []
         self.load_word2vec()
         self.load_relation()
+        self.position_feature = []
 
     def load_word2vec(self):
         #load word2vec from file
@@ -52,7 +53,7 @@ class DataManager:
 
     def load_training_data(self):
         #load training data from file
-        training_data = list(open("../data/RE/train1.txt").readlines())
+        training_data = list(open("../data/RE/train2.txt").readlines())
         training_data = [s.split() for s in training_data]
         for data in training_data:
             e1 = data[0]
@@ -85,6 +86,7 @@ class DataManager:
                 sequence.append(gg)
             self.headlist.append(head)
             self.taillist.append(tail)
+            self.position_feature.append([lefnum, rignum])
             r = np.zeros(self.relationtotal)
             r[int(relation)] = 1.0
             self.relationlist.append(r)
@@ -92,7 +94,7 @@ class DataManager:
                 sequence[i] = np.insert(sequence[i], len(sequence[i]), lefnum)
                 sequence[i] = np.insert(sequence[i], len(sequence[i]), rignum)
             self.trainlist.append(sequence)
-        return self.trainlist, np.asarray(self.relationlist)
+        return self.trainlist, np.asarray(self.relationlist), self.position_feature
 
     def load_testing_data(self):
         #load training data from file
@@ -129,11 +131,12 @@ class DataManager:
             self.headlist.append(head)
             self.taillist.append(tail)
             self.relationlist.append(relation)
+            self.position_feature.append([lefnum, rignum])
             for i in range(len(sequence)):
                 sequence[i] = np.insert(sequence[i], len(sequence[i]), lefnum)
                 sequence[i] = np.insert(sequence[i], len(sequence[i]), rignum)
             self.testlist.append(sequence)
-        return self.testlist, np.asarray(self.relationlist)
+        return self.testlist, np.asarray(self.relationlist), self.position_feature
 
     def batch_iter(self, data, batch_size, num_epochs, shuffle=True):
         """

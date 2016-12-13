@@ -58,7 +58,7 @@ class DataManager:
 
     def load_training_data(self):
         #load training data from file
-        training_data = list(open("../data/RE/train1.txt").readlines())
+        training_data = list(open("../data/RE/train2.txt").readlines())
         training_data = [s.split() for s in training_data]
         for data in training_data:
             e1 = data[0]
@@ -119,6 +119,8 @@ class DataManager:
                 tail = self.wordMapping[tail_s]
             relation_s = data[4]
             relation = self.relationMapping[relation_s]
+            if relation == 0:
+                continue
             lefnum = rignum = 0
             sequence = []
             for i in range(5, len(data)-1):
