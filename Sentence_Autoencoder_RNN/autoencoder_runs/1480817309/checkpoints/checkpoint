@@ -1,6 +1,0 @@
-model_checkpoint_path: "/home/dhuang/NRE_tensorflow/Sentence_Autoencoder_CNN/autoencoder_runs/1480817309/checkpoints/model-9800"
-all_model_checkpoint_paths: "/home/dhuang/NRE_tensorflow/Sentence_Autoencoder_CNN/autoencoder_runs/1480817309/checkpoints/model-9400"
-all_model_checkpoint_paths: "/home/dhuang/NRE_tensorflow/Sentence_Autoencoder_CNN/autoencoder_runs/1480817309/checkpoints/model-9500"
-all_model_checkpoint_paths: "/home/dhuang/NRE_tensorflow/Sentence_Autoencoder_CNN/autoencoder_runs/1480817309/checkpoints/model-9600"
-all_model_checkpoint_paths: "/home/dhuang/NRE_tensorflow/Sentence_Autoencoder_CNN/autoencoder_runs/1480817309/checkpoints/model-9700"
-all_model_checkpoint_paths: "/home/dhuang/NRE_tensorflow/Sentence_Autoencoder_CNN/autoencoder_runs/1480817309/checkpoints/model-9800"
