@@ -106,7 +106,7 @@ class DataManager:
 
     def load_testing_data(self):
         #load training data from file
-        testing_data = list(open("../data/RE/test1.txt").readlines())
+        testing_data = list(open("../data/RE/test.txt").readlines())
         testing_data = [s.split() for s in testing_data]
         for data in testing_data:
             e1 = data[0]
@@ -166,7 +166,7 @@ class DataManager:
                 else:
                     yield shuffled_data[start_index:end_index]
 
-    def seq2seq_batch_iter(self, x, y, y_label, batch_size, num_epochs, shuffle=True):
+    def seq2seq_batch_iter(self, x, y_label, batch_size, num_epochs, shuffle=True):
         """
         Generates a batch iterator for a dataset.
         """
@@ -178,9 +178,8 @@ class DataManager:
             if shuffle:
                 shuffle_indices = np.random.permutation(np.arange(data_size))
                 x = x[shuffle_indices]
-                y = y[shuffle_indices]
                 y_label = y_label[shuffle_indices]
-            shuffled_data = list(zip(x, y, y_label))
+            shuffled_data = list(zip(x, y_label))
             for batch_num in range(num_batches_per_epoch):
                 start_index = batch_num * batch_size
                 end_index = min((batch_num + 1) * batch_size, data_size)

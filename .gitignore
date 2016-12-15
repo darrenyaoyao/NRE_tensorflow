@@ -1,4 +1,6 @@
 **/*.pyc
 **/runs
 **/data
+**/seq2seq_runs
+**/re_runs
 

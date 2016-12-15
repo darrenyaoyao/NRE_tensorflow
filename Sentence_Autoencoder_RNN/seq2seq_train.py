@@ -13,7 +13,7 @@ from tensorflow.python.util import nest
 
 # Model Hyperparameters
 tf.flags.DEFINE_integer("embedding_dim", 50, "Dimensionality of character embedding (default: 50)")
-tf.flags.DEFINE_integer("sentence_length", 100, "Each sentence length (default: 100)")
+tf.flags.DEFINE_integer("sentence_length", 80, "Each sentence length (default: 80)")
 tf.flags.DEFINE_float("dropout_keep_prob", 0.5, "Dropout keep probability (default: 0.5)")
 tf.flags.DEFINE_float("l2_reg_lambda", 0.0, "L2 regularizaion lambda (default: 0.0)")
 
@@ -46,46 +46,56 @@ print("Finish loading data")
 #Prepare data
 x = []
 for data in x_text:
-    a = 100-len(data)
+    a = 80-len(data)
     if a > 0:
         padding = [np.zeros(52) for i in range(a)]
         x.append(data+padding)
     else:
-        x.append(data[:100])
-y = []
-for i in x:
-    y.append([np.zeros(52)]+i[:-1])
+        x.append(data[:80])
 
-y_label = []
-for i, s in enumerate(y_num):
-    a = 100-len(s)
-    if a > 0:
-        padding = [0 for k in range(a)]
-        y_num[i] = y_num[i]+padding
-    else:
-        y_num[i] = y_num[i][:100]
-    for j in range(100):
-        v = np.zeros(8000, dtype=np.float32)
-        v[y_num[i][j]] = 1.0
-        y_num[i][j] = v
-    y_label.append(np.asarray(y_num[i], dtype=np.float32))
+def decoder_y(x):
+    x = np.asarray(x)
+    y = []
+    for i in x:
+        y.append([np.zeros(52)]+list(i)[:-1])
+    return y
+
+def one_hot(y):
+    y = list(y)
+    y_l = []
+    for i, s in enumerate(y):
+        a = 80-len(s)
+        if a > 0:
+            padding = [0 for k in range(a)]
+            y[i] = y[i]+padding
+        else:
+            y[i] = y[i][:80]
+        for j in range(80):
+            v = np.zeros(8000, dtype=np.float32)
+            v[y[i][j]] = 1.0
+            y[i][j] = v
+        y_l.append(np.asarray(y[i], dtype=np.float32))
+    return np.asarray(y_l, dtype=np.float32)
+
+y_label = y_num
 
 x = np.asarray(x)
-y = np.asarray(y)
 y_label = np.asarray(y_label)
 
 #Randomly shuffle data
 np.random.seed(10)
-shuffle_indices = np.random.permutation(np.arange(len(y)))
+shuffle_indices = np.random.permutation(np.arange(len(x)))
 x = x[shuffle_indices]
-y = y[shuffle_indices]
 y_label = y_label[shuffle_indices]
 
 with tf.Graph().as_default():
-    with tf.Session() as sess:
+    session_conf = tf.ConfigProto(
+      allow_soft_placement=FLAGS.allow_soft_placement,
+      log_device_placement=FLAGS.log_device_placement)
+    with tf.Session(config=session_conf) as sess:
         lstm_cell = rnn_cell.BasicLSTMCell(128, forget_bias=1.0)
         seq2seq_model = Seq2seqModel(
-                sentence_length = 100,
+                sentence_length = 80,
                 embedding_size = 52,
                 hidden_size = 128,
                 vocabulary_size = 8000,
@@ -125,9 +135,9 @@ with tf.Graph().as_default():
         def train_step(x_batch, y_batch, y_label_batch):
             #Single training step
             feed_dict={
-                seq2seq_model.input_x: x,
-                seq2seq_model.input_y: y,
-                seq2seq_model.output_y: y_label
+                seq2seq_model.input_x: x_batch,
+                seq2seq_model.input_y: y_batch,
+                seq2seq_model.output_y: y_label_batch
             }
             _, step, summaries, cost, accuracy, = sess.run(
                 [train_op, global_step, train_summary_op, seq2seq_model.cost, seq2seq_model.accuracy],
@@ -136,7 +146,7 @@ with tf.Graph().as_default():
             return cost, accuracy
 
         #Generate batches
-        batches = dataManager.seq2seq_batch_iter(x, y, y_label, FLAGS.batch_size, FLAGS.num_epochs)
+        batches = dataManager.seq2seq_batch_iter(x, y_label, FLAGS.batch_size, FLAGS.num_epochs)
         num_batches_per_epoch = int(len(x)/FLAGS.batch_size) + 1
         #Training loop. For each batch...
         num_batch = 1
@@ -146,7 +156,9 @@ with tf.Graph().as_default():
                 num_epoch += 1
                 num_batch = 1
             num_batch += 1
-            x_batch, y_batch, y_label_batch = zip(*batch)
+            x_batch, y_label_b = zip(*batch)
+            y_label_batch = one_hot(y_label_b)
+            y_batch = decoder_y(x_batch)
             cost, accuracy = train_step(x_batch, y_batch, y_label_batch)
             current_step = tf.train.global_step(sess, global_step)
             if current_step % FLAGS.evaluate_every == 0:
